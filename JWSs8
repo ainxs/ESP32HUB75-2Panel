@@ -1,0 +1,438 @@
+#include "BluetoothSerial.h"
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+
+#include <SoftwareSerial.h>
+#include <DFPlayer_Mini_Mp3.h> 
+
+
+static const uint8_t PIN_MP3_TX = 1; // Connects to module's RX 
+static const uint8_t PIN_MP3_RX = 3; // Connects to module's TX 
+SoftwareSerial softwareSerial(PIN_MP3_RX, PIN_MP3_TX);
+
+#include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
+#include "ESP32-VirtualMatrixPanel-I2S-DMA.h"
+#include <DS3231.h>
+#include "EEPROM.h"
+
+
+#include <k4pt7b.h> 
+#include <Font5x7.h> 
+#include <atawi21x11c.h> 
+#include <Digital4x7.h>
+#include <atawi10b2.h> 
+#include <FreeSans9pt7b.h>
+#include <FreeSerifBold24pt7b.h> 
+#include <atawi8cr.h> 
+#include <kongtext4pt7b.h> 
+#include <FreeMonoOblique24pt7b.h> 
+#include <FreeMonoBold9pt7b.h>
+#include <Free12b.h>
+#include <FreeSerifBoldItalic9pt7b.h>
+
+#define Font0 &k4pt7b
+#define Font1 &Font5x78pt7b
+#define Font2 &atawi21x11c
+#define Font3 &Digital4x78pt7b
+#define Font4 &atawi10b2
+#define Font5 &kongtext4pt7b
+#define Font6 &atawi8cr
+#define Font7 &FreeSerifBold24pt7b
+#define Font8 &FreeMonoBold9pt7b
+#define Font9 &Free12b
+#define Font10 &FreeSerifBoldItalic9pt7b
+
+
+#define  F2(progmem_ptr) (const __FlashStringHelper *)progmem_ptr
+BluetoothSerial SerialBT;
+
+#define BUZZ 32
+
+char *pasar[] ={"Wage", "Kliwon", "Legi", "Pahing", "Pon"};
+// Object Declarations
+RTClib          RTC;
+DS3231          Clock;
+
+  #define PANEL_RES_X 64 // Number of pixels wide of each INDIVIDUAL panel module. 
+  #define PANEL_RES_Y 32 // Number of pixels tall of each INDIVIDUAL panel module.
+    
+  #define NUM_ROWS 1 
+  #define NUM_COLS 2 
+
+  #define SERPENT true
+  #define TOPDOWN false
+  
+MatrixPanel_I2S_DMA *Disp = nullptr;
+VirtualMatrixPanel  *matrix = nullptr;
+
+
+// Some standard colors
+uint16_t myRED      = matrix->color565(255,   0,   0);
+uint16_t myGREEN    = matrix->color565(  0, 255,   0);
+uint16_t myBLUE     = matrix->color565(  0,   0, 255);
+uint16_t myWHITE    = matrix->color565(255, 255, 255);
+uint16_t myYELLOW   = matrix->color565(255, 255,   0);
+uint16_t myCYAN     = matrix->color565(  0, 255, 255);
+uint16_t myMAGENTA  = matrix->color565(255,   0, 255);
+uint16_t myShadow   = matrix->color565(255,   0,   0);
+uint16_t myROSE     = matrix->color565(253,  18, 111);
+uint16_t myBLACK    = matrix->color565(  0,   0,   0);
+uint16_t myVIOLET   = matrix->color565(69,   18, 145);
+uint16_t myGOLD     = matrix->color565(255,   0, 100); 
+
+uint16_t myCOLORS[90] = {myRED, myGREEN, myWHITE, myMAGENTA, myBLUE, myYELLOW, myCYAN, myGOLD, myGREEN, myVIOLET,
+                         myBLUE, myWHITE, myCYAN, myRED, myGREEN, myYELLOW, myMAGENTA, myBLUE, myRED, myYELLOW, 
+                         myCYAN, myRED, myGREEN, myMAGENTA, myBLUE, myWHITE, myYELLOW, myCYAN, myBLUE, myWHITE,
+                         myBLUE, myWHITE, myYELLOW, myCYAN, myRED, myGREEN, myMAGENTA, myBLUE, myRED, myYELLOW, 
+                         myCYAN, myRED, myGREEN, myMAGENTA, myBLUE, myGREEN, myYELLOW, myCYAN, myBLUE, myWHITE,
+                         myRED, myGREEN, myMAGENTA, myBLUE, myWHITE, myYELLOW, myCYAN, myRED, myGREEN, myMAGENTA,
+                         myBLUE, myWHITE, myYELLOW, myCYAN, myRED, myGREEN, myMAGENTA, myBLUE, myGREEN, myYELLOW, 
+                         myBLUE, myWHITE, myYELLOW, myCYAN, myRED, myGREEN, myMAGENTA, myBLUE, myShadow, myYELLOW, 
+                         myCYAN, myRED, myGREEN, myMAGENTA, myBLUE, myWHITE, myYELLOW, myCYAN, myBLUE, myShadow};
+
+
+//Structure of Variable
+typedef struct  // loaded to EEPROM
+{
+  uint8_t state;   // 1 byte  add 0
+  float   L_LA;    // 4 byte  add 1
+  float   L_LO;    // 4 byte  add 5
+  float   L_AL;    // 4 byte  add 9
+  float   L_TZ;    // 4 byte  add 13
+  uint8_t MT;      // 1 byte  add 17  // value 1-masjid  2-mushollah 3-surau 4-langgar
+  uint8_t BL;      // 1 byte  add 18
+  uint8_t IH;      // 1 byte  add 19
+  uint8_t SO;      // 1 byte  add 20
+  uint8_t JM;      // 1 byte  add 21
+  uint8_t I1;      // 1 byte  add 22
+  uint8_t I4;      // 1 byte  add 23
+  uint8_t I5;      // 1 byte  add 24
+  uint8_t I6;      // 1 byte  add 25
+  uint8_t I7;      // 1 byte  add 26
+  uint8_t BZ;      // 1 byte  add 27
+  uint8_t SI;      // 1 byte  add 28
+  uint8_t ST;      // 1 byte  add 29
+  uint8_t SU;      // 1 byte  add 30
+  int8_t  CH;      // 1 byte  add 31
+  
+  uint8_t RT;      // 1 byte  add 32 // penambahan baru
+  uint8_t VL;      // 1 byte  add 33
+  
+  int8_t K1;      // 1 byte  add 22
+  int8_t K4;      // 1 byte  add 23
+  int8_t K5;      // 1 byte  add 24
+  int8_t K6;      // 1 byte  add 25
+  int8_t K7;      // 1 byte  add 26
+} struct_param;
+
+typedef struct
+{
+  uint8_t   hD;
+  uint8_t   hM;
+  uint16_t  hY;
+} hijir_date;
+
+
+// Variable by Structure
+struct_param    Prm;
+hijir_date      nowH;
+
+// Time Variable
+DateTime        now;
+float           floatnow   = 0;
+uint8_t         daynow     = 0;
+uint8_t         ty_puasa   = 0;
+uint8_t         hd_puasa   = 0;
+int8_t          SholatNow  = -1;
+boolean         jumat      = false;
+boolean         azzan      = false;
+uint8_t         reset_x    = 0;
+
+//Other Variable
+float sholatT[8]  = {0, 0, 0, 0, 0, 0, 0, 0};
+uint8_t Iqomah[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+//Blue tooth Pram Receive
+char        CH_Prm[255];
+int         DWidth  = 64 * NUM_COLS;
+int         DHeight = 32;
+int         RunSel    = 1; 
+int         RunFinish = 0 ;
+
+uint8_t     bzzz   = 1;
+
+static uint32_t lastTime = 0; // millis() memory
+const char* msg;
+int    textX   =  DWidth,
+       textMin = sizeof(msg) * -DWidth,
+       hue     = 0;
+
+//=======================================
+//===SETUP===============================
+//=======================================
+void setup()
+{ //init comunications
+
+  Wire.begin();
+  EEPROM.begin(1024);
+
+  Serial.begin(115200);
+  SerialBT.begin("JWS_2Pnl"); //Bluetooth device name
+  mp3_set_serial (Serial);
+  delay(10);
+  mp3_reset();
+  mp3_set_volume (5);
+  delay(10);                                         //DFPLAYER_MINI see NOTE, false=no response from module after the command
+
+  
+        HUB75_I2S_CFG mxconfig(
+          
+                PANEL_RES_X*2,              // DO NOT CHANGE THIS
+                PANEL_RES_Y/2,              // DO NOT CHANGE THIS
+                NUM_ROWS*NUM_COLS           // DO NOT CHANGE THIS
+                //,_pins            // Uncomment to enable custom pins
+    );
+    mxconfig.double_buff = true;
+    mxconfig.clkphase = false; // Change this if you see pixels showing up shifted wrongly by one column the left or right.
+    Disp = new MatrixPanel_I2S_DMA(mxconfig);
+   // Disp->setBrightness8(10);    // range is 0-255, 0 - 0%, 255 - 100%
+    if( not Disp->begin() )
+      Disp->clearScreen();
+    delay(500);
+    matrix = new VirtualMatrixPanel((*Disp), NUM_ROWS, NUM_COLS, PANEL_RES_X, PANEL_RES_Y);
+    matrix->setPhysicalPanelScanRate(FOUR_SCAN_32PX_HIGH);
+    Disp->setBrightness8(50);
+    
+  updateTime();
+  GetPrm();
+  SendPrm();
+
+
+  //  init P10 Led matrix & Salam
+  //  matrix_init();
+    pinMode(BUZZ,OUTPUT);
+    digitalWrite(BUZZ, HIGH);
+    delay(100);
+    digitalWrite(BUZZ, LOW);
+    delay(100); 
+    digitalWrite(BUZZ, HIGH);
+    delay(100);
+    digitalWrite(BUZZ, LOW);
+    delay(100); 
+    mp3_play (0);//// ting-tong  
+
+  matrix->setTextWrap(false);
+
+}
+
+//=======================================
+//===MAIN LOOP Function =================
+//=======================================
+void loop()
+{
+
+  serialEvent();
+ // bz();
+  // Reset & Init matrixlay State
+  updateTime();   //every time
+  check_azzan();  //check Sholah Time for Azzan
+
+  // Timer Function every 10 Minutes
+  // Up All function with Timer in this fuction
+  Timer_Minute(1);
+
+  Drawloop();
+
+  
+}
+
+// =========================================
+// Time Calculation Block===================
+// =========================================
+void updateTime()
+{ now = RTC.now();
+  floatnow = (float)now.hour() + (float)now.minute() / 60 + (float)now.second() / 3600;
+  daynow   = Clock.getDoW();    // load day Number
+  AlarmJam();
+}
+
+void AlarmJam() //load every  1 second
+  { 
+    int alarm;
+    static uint32_t   lsRn;
+    uint32_t          Tmr = millis();
+    if((Tmr-lsRn)>1000)
+      {
+        lsRn =Tmr;
+             // alarm jam
+        if (now.minute()==0 and now.second()==0){alarm = 1;}else{alarm = 0;} 
+        if (alarm==1){mp3_set_volume(Prm.VL); delay(200); mp3_play(0001);}
+
+      }
+  } 
+
+void Timer_Minute(int repeat_time) //load every  1 minute
+{
+  static uint16_t   lsRn;
+  uint16_t          Tmr = millis();
+  if ((Tmr - lsRn) > (repeat_time * 120000))
+  {
+    lsRn = Tmr;
+    update_All_data();
+  }
+}
+
+void update_All_data()
+  {
+  uint8_t   date_cor = 0;
+  updateTime();
+  sholatCal();                                                // load Sholah Time
+  check_puasa();                                              // check jadwal Puasa Besok
+  if(floatnow>sholatT[6]) {date_cor = 1;}                     // load Hijr Date + corection next day after Mhagrib 
+  nowH = toHijri(now.year(),now.month(),now.day(),date_cor);  // load Hijir Date
+  Disp->setBrightness8(Prm.BL);
+  }
+
+void check_azzan()
+{ //Check Waktu Sholat
+  SholatNow  = -1;
+  for (int i = 0; i <= 7; i++)
+  {
+//------------------------------------------------SAHUR----------------------------------------------------------//      
+      if (i==0)
+        {   
+          if ((digitalRead(35)==1 && nowH.hM==9 && floatnow >= sholatT[0]-1.05)&& (floatnow < sholatT[0]-1.0))// 1.0=60 MENIT           
+          {RunSel=97; mp3_play(7777); delay(100);}
+        }      
+    
+//-------------------------------------------------IMSYAK----------------------------------------------------------//     
+      if (i==0)
+       {
+        if((digitalRead(35)==1 && nowH.hM==9 && floatnow >= sholatT[0]-0.1/60) && (floatnow < (sholatT[0])))/////IMSAK 
+           {RunSel=98;mp3_play(6666); delay(100);}
+       }
+
+//------------------------------------------------TARHIM-----------------------------------------------------------//    
+    if (i != 0 and i != 2 and i != 3) // bukan terbit dan bukan dhuha
+    {
+        if((floatnow >= (sholatT[i]-4.87/60)) && (floatnow < (sholatT[i])))
+       {           
+        if(digitalRead(35)==1 && !(daynow==6 and i==4))
+        {RunSel=99; mp3_play(1000);delay(100);}  
+        }       
+       unsigned int file;
+      if (floatnow >= sholatT[i])
+      {
+        SholatNow = i;
+        if (!azzan and (floatnow > sholatT[i]) and (floatnow < (sholatT[i] + 0.03)))
+        {
+          if (daynow == 6 and SholatNow == 4 and Prm.MT == 1) {jumat = true;}
+          if(i==1)
+            {file=1111;}
+            else{file=4444;}
+                 mp3_play(file);
+                    delay(100);   
+          azzan = true;
+          RunSel = 100;
+        }
+      }
+    }
+  }
+}
+
+
+void Drawloop()
+{
+  matrix->flipDMABuffer();  
+  matrix->clearScreen(); // clear screen
+  
+    
+  // =========================================
+  // List of matrixlay Component Block =======
+  // =========================================
+  dwMrq(drawDayDate(), 50, 1, 1);                          // addr: 3 show Hijriah date
+  dwMrq(drawDayDate(), 50, 1, 2);                          // addr: 2 show Masjid Name
+  dwMrq(drawDayDate(), 50, 1, 3);
+ // dwMrq(msgPuasa(ty_puasa, hd_puasa), Prm.RT, 1, 3);              // addr: 5 show Remander Puasa
+  dwMrq(drawInfo(130), 50, 2, 4);                          // addr: 6 show Info 1
+  dwMrq(drawInfo(280), 50, 2, 5);                          // addr: 8 show Info 2
+  dwMrq(drawInfo(430), 50, 2, 6);                         // addr: 10 show Info 3
+
+  drawAzzan(100);                                             // addr: 100 show Azzan
+  drawIqomah(101);                                            // addr: 101 show Iqomah
+  dwMrq(drawInfo(580), 150, 2, 102); //Message Sholat biasa       // addr: 202 show Message Sholah
+  dwMrq(drawInfo(730), 150, 2, 103); //Message Sholat jumat       // addr: 203 show Message Jum'at
+  blinkBlock(104);                                            // addr: 104 show Blink  Sholat
+
+  // =========================================
+  // matrixlay Control Block =================
+  // =========================================
+  if (RunFinish == 1) {
+    
+    RunSel = 2;  //after anim 1 set anim 2
+    RunFinish = 0;
+  }
+
+  if (RunFinish == 2)                                               //after anim 3 set anim 5 or anim 4 if puasa
+  {
+    if (ty_puasa != 0)  {
+     RunSel =3;
+      RunFinish = 0;
+    }
+    else {
+      RunSel = 4;
+      RunFinish = 0;
+    }
+  }
+
+  if (RunFinish == 3) {
+    
+    RunSel = 4;  //after anim 3 set anim 4
+    RunFinish = 0;
+  }
+  if (RunFinish == 4)  {
+  
+    RunSel = 5;   //after anim 4 set anim 5
+    RunFinish = 0;
+  }
+  if (RunFinish == 5)  {
+    RunSel = 6;   //after anim 5 set anim 6
+    RunFinish = 0;
+  }
+  if (RunFinish == 6)  {
+    RunSel = 1;   //after anim 6 set anim 7
+    RunFinish = 0;
+  }
+
+  if (RunFinish == 100 and jumat )     {
+   // RunSel = 103;  //after Azzan Jumat (anim 100)
+    RunSel = 1;  //after Blink Sholah back to anim 1
+    RunFinish = 0;
+    reset_x = 1;
+  }
+  else if (RunFinish == 100)           {
+    //RunSel = 101;  //after Azzan Sholah (Iqomah)
+    RunSel = 1;  //after Blink Sholah back to anim 1
+    RunFinish = 0;
+  }
+/*
+  if (RunFinish == 101) {
+    RunSel = 102;  //after Iqomah(anim 101) set Message Sholah (anim 102)
+    RunFinish = 0;
+    reset_x = 1;
+  }
+  if (RunFinish == 102) {
+    RunSel = 104;  //after Message Sholah (anim 102) set Blink Sholah(anim 104)
+    RunFinish = 0;
+  }
+  if (RunFinish == 103) {
+    RunSel = 104;  //after Messagw Jum'at (anim 103) set Blink Sholah(anim 104)
+    RunFinish = 0;
+  }
+  if (RunFinish == 104) {
+    RunSel = 1;  //after Blink Sholah back to anim 1
+    RunFinish = 0;
+  }
+    */
+}
